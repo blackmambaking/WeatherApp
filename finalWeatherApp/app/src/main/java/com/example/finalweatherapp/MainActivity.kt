@@ -3,6 +3,7 @@ package com.example.finalweatherapp
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -72,8 +73,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private var latitude by mutableStateOf("")
     private var longitude by mutableStateOf("")
-    private var maxTemp by mutableStateOf("Max")
-    private var minTemp by mutableStateOf("Min")
+    private var maxTemp by mutableStateOf("")
+    private var minTemp by mutableStateOf("")
 
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -193,64 +194,109 @@ class MainActivity : ComponentActivity() {
             }
     }
 
+    fun getPreviousYearsDates(selectedDate: Date): List<String> {
+        val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val currentDate = Calendar.getInstance()
+        currentDate.time = selectedDate
+
+        val dates = mutableListOf<String>()
+
+        for (i in 1..10) {
+            val year = Calendar.getInstance().get(Calendar.YEAR) - i
+            val month = currentDate.get(Calendar.MONTH) + 1 // Months are zero-based
+            val day = currentDate.get(Calendar.DAY_OF_MONTH)
+            val formattedDate = formatter.format(Date(year - 1900, month - 1, day))
+            dates.add(formattedDate)
+        }
+        return dates
+    }
+
     @RequiresApi(Build.VERSION_CODES.O)
     private fun fetchWeatherData(selectedDate: Date) {
         val formattedDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(selectedDate)
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                CoroutineScope(Dispatchers.Main).launch {
-                    Toast.makeText(this@MainActivity, formattedDate, Toast.LENGTH_SHORT).show()
-                    // Update your UI here with the fetched data
-                }
-                // Assuming formattedDate represents the start date
-                val startDate = LocalDate.parse(formattedDate, DateTimeFormatter.ISO_DATE)
+        val currentDate = LocalDate.now()
+        val inputDate = LocalDate.parse(formattedDate, DateTimeFormatter.ISO_DATE)
 
-// Calculate the end date by adding one day to the start date
-                val endDate = startDate.plusDays(1)
+        if (currentDate.isBefore(inputDate)) {
+            // startDate is in the future compared to currentDate
+            val previousYearsDates = getPreviousYearsDates(selectedDate)
+            var minTempSum = 0.0
+            var maxTempSum = 0.0
+            for (i in 0..9){
+                // startDate is in the past compared to currentDate
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val newFormattedDate = previousYearsDates[i]
+                        // Assuming formattedDate represents the start date
+                        val startDate = LocalDate.parse(newFormattedDate, DateTimeFormatter.ISO_DATE)
+                        val endDate = startDate.plusDays(1)
+                        val formattedEndDate = endDate.format(DateTimeFormatter.ISO_DATE)
+                        val response = URL("https://api.weatherbit.io/v2.0/history/daily?lat=$latitude&lon=$longitude&start_date=$newFormattedDate&end_date=$formattedEndDate&key=$API").readText(Charsets.UTF_8)
+                        val jsonObj = JSONObject(response)
+                        val dataArray = jsonObj.getJSONArray("data")
+                        val firstDataObject = dataArray.getJSONObject(0)
+                        val tempMin = firstDataObject.getDouble("min_temp")
+                        val tempMax = firstDataObject.getDouble("max_temp")
+                        minTempSum += tempMin
+                        maxTempSum += tempMax
+                        if (i == 9) {
+                            val averageMin = minTempSum / 10
+                            val averageMax = maxTempSum / 10
+                            withContext(Dispatchers.Main) {
+                                minTemp = "Min: ${String.format("%.1f", averageMin)}°C"
+                                maxTemp = "Max: ${String.format("%.1f", averageMax)}°C"
+                            }
+                        }
 
-// Format the end date to match the required format (assuming ISO_DATE format)
-                val formattedEndDate = endDate.format(DateTimeFormatter.ISO_DATE)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
 
-// Update the API request with the new end date
-                val response = URL("https://api.weatherbit.io/v2.0/history/daily?lat=$latitude&lon=$longitude&start_date=$formattedDate&end_date=$formattedEndDate&key=$API").readText(Charsets.UTF_8)
-                val jsonObj = JSONObject(response)
-                val dataArray = jsonObj.getJSONArray("data")
-
-// Assuming you want to retrieve max and min temperature from the first entry of data array
-                val firstDataObject = dataArray.getJSONObject(0)
-                val tempMin = firstDataObject.getDouble("min_temp")
-                val tempMax = firstDataObject.getDouble("max_temp")
-
-                // Update UI on the main thread
-                CoroutineScope(Dispatchers.Main).launch {
-                    minTemp = "Min: $tempMin°C"
-                    maxTemp = "Max: $tempMax°C"
-                    database.WeatherDAO().insert(Weather(0, formattedDate, tempMin.toString(), tempMax.toString()))
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                // Handle error, show error message or retry mechanism
-                // If network request fails, retrieve data from the database
-                val weatherDataFromDB = database.WeatherDAO().getWeatherForDate(formattedDate)
-                if (weatherDataFromDB.isEmpty()) {
-                    // Show toast for no record and no connection
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "No internet and no db!!", Toast.LENGTH_SHORT).show()
                     }
-                } else {
-                    // Assuming the latest weather data is the one needed, you can modify this according to your logic
-                    val latestWeatherData = weatherDataFromDB[0]
-                    // Update UI with data from the database
-                    withContext(Dispatchers.Main) {
-                        minTemp = "Min: ${latestWeatherData.min}°C"
-                        maxTemp = "Max: ${latestWeatherData.max}°C"
+                }
+            }
+
+
+        }else {
+            // startDate is in the past compared to currentDate
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+
+                    // Assuming formattedDate represents the start date
+                    val startDate = LocalDate.parse(formattedDate, DateTimeFormatter.ISO_DATE)
+                    val endDate = startDate.plusDays(1)
+                    val formattedEndDate = endDate.format(DateTimeFormatter.ISO_DATE)
+                    val response = URL("https://api.weatherbit.io/v2.0/history/daily?lat=$latitude&lon=$longitude&start_date=$formattedDate&end_date=$formattedEndDate&key=$API").readText(Charsets.UTF_8)
+                    val jsonObj = JSONObject(response)
+                    val dataArray = jsonObj.getJSONArray("data")
+                    val firstDataObject = dataArray.getJSONObject(0)
+                    val tempMin = firstDataObject.getDouble("min_temp")
+                    val tempMax = firstDataObject.getDouble("max_temp")
+                    CoroutineScope(Dispatchers.Main).launch {
+                        minTemp = "Min: $tempMin°C"
+                        maxTemp = "Max: $tempMax°C"
+                        database.WeatherDAO().insert(Weather(0, formattedDate, tempMin.toString(), tempMax.toString()))
                     }
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "No internet!! Fetching from db...", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    val weatherDataFromDB = database.WeatherDAO().getWeatherForDate(formattedDate)
+                    if (weatherDataFromDB.isEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(this@MainActivity, "No internet and no db!!", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        val latestWeatherData = weatherDataFromDB[0]
+                        withContext(Dispatchers.Main) {
+                            minTemp = "Min: ${latestWeatherData.min}°C"
+                            maxTemp = "Max: ${latestWeatherData.max}°C"
+                        }
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(this@MainActivity, "No internet!! Fetching from db...", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 }
             }
         }
+
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
