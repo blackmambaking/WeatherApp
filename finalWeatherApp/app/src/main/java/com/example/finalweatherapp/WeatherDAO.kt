@@ -20,4 +20,7 @@ interface WeatherDAO {
     @Query("SELECT * FROM weatherData")
     suspend fun getWeather(): List<Weather>
 
+    @Query("SELECT * FROM weatherData WHERE date = :selectedDate")
+    suspend fun getWeatherForDate(selectedDate: String): List<Weather>
+
 }

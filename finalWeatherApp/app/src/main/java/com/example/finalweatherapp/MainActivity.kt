@@ -230,6 +230,25 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 e.printStackTrace()
                 // Handle error, show error message or retry mechanism
+                // If network request fails, retrieve data from the database
+                val weatherDataFromDB = database.WeatherDAO().getWeatherForDate(formattedDate)
+                if (weatherDataFromDB.isEmpty()) {
+                    // Show toast for no record and no connection
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, "No internet and no db!!", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    // Assuming the latest weather data is the one needed, you can modify this according to your logic
+                    val latestWeatherData = weatherDataFromDB[0]
+                    // Update UI with data from the database
+                    withContext(Dispatchers.Main) {
+                        minTemp = "Min: ${latestWeatherData.min}°C"
+                        maxTemp = "Max: ${latestWeatherData.max}°C"
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, "No internet!! Fetching from db...", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
     }
